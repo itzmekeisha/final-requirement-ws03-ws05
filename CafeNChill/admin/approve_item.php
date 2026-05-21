@@ -2,45 +2,54 @@
 session_start();
 include "../config/db.php";
 
-// SECURITY CHECK - Admin access only
 if(!isset($_SESSION['user']) || $_SESSION['user']['role'] != 'admin'){
     header("Location: ../auth/login.php");
     exit();
 }
 
-// Handle Approve Logic
-if(isset($_GET['approve_id'])){
-    $id = intval($_GET['approve_id']);
 
-    $stmt_get = $conn->prepare("SELECT * FROM item_requests WHERE id = ?");
-    $stmt_get->bind_param("i", $id);
-    $stmt_get->execute();
-    $request_data = $stmt_get->get_result()->fetch_assoc();
-
-    if($request_data){
-        $stmt_ins = $conn->prepare("INSERT INTO items (name, category, quantity, status) VALUES (?, ?, ?, 'approved')");
-        $stmt_ins->bind_param("ssi", $request_data['name'], $request_data['category'], $request_data['quantity']);
-        
-        if($stmt_ins->execute()){
-            $stmt_del = $conn->prepare("DELETE FROM item_requests WHERE id = ?");
-            $stmt_del->bind_param("i", $id);
-            $stmt_del->execute();
-            
-            header("Location: approve_item.php?msg=approved");
-            exit;
-        }
-    }
+if (!isset($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 }
 
-// Handle Decline Logic
-if(isset($_GET['decline_id'])){
-    $id = intval($_GET['decline_id']);
-    $stmt_del = $conn->prepare("DELETE FROM item_requests WHERE id = ?");
-    $stmt_del->bind_param("i", $id);
+
+if($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['action_type'])){
     
-    if($stmt_del->execute()){
-        header("Location: approve_item.php?msg=declined");
-        exit;
+   
+    if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+        die("Security Error: CSRF token verification failed.");
+    }
+
+    $id = intval($_POST['request_id']);
+    $action = $_POST['action_type'];
+
+    if($action === 'approve'){
+        $stmt_get = $conn->prepare("SELECT * FROM item_requests WHERE id = ?");
+        $stmt_get->bind_param("i", $id);
+        $stmt_get->execute();
+        $request_data = $stmt_get->get_result()->fetch_assoc();
+
+        if($request_data){
+            $stmt_ins = $conn->prepare("INSERT INTO items (name, category, quantity, uom, status) VALUES (?, ?, ?, ?, 'approved')");
+            $stmt_ins->bind_param("ssis", $request_data['name'], $request_data['category'], $request_data['quantity'], $request_data['uom']);
+            
+            if($stmt_ins->execute()){
+                $stmt_del = $conn->prepare("DELETE FROM item_requests WHERE id = ?");
+                $stmt_del->bind_param("i", $id);
+                $stmt_del->execute();
+                
+                header("Location: approve_item.php?msg=approved");
+                exit;
+            }
+        }
+    } elseif($action === 'decline') {
+        $stmt_del = $conn->prepare("DELETE FROM item_requests WHERE id = ?");
+        $stmt_del->bind_param("i", $id);
+        
+        if($stmt_del->execute()){
+            header("Location: approve_item.php?msg=declined");
+            exit;
+        }
     }
 }
 
@@ -91,9 +100,16 @@ $page = basename($_SERVER['PHP_SELF']);
         .btn-action:hover { opacity: 0.8; transform: translateY(-2px); transition: 0.2s; }
         
         .no-data { text-align: center; padding: 50px; color: #a8a29e; font-style: italic; }
+        .reason-text { font-size: 0.75rem; color: #d4a373; font-style: italic; background: rgba(0,0,0,0.2); padding: 5px; border-radius: 4px; }
     </style>
 </head>
 <body>
+
+<form id="actionForm" method="POST" style="display:none;">
+    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
+    <input type="hidden" name="request_id" id="formRequestInput">
+    <input type="hidden" name="action_type" id="formActionInput">
+</form>
 
 <div class="sidebar">
     <h2>CAFE N CHILL</h2>
@@ -112,8 +128,7 @@ $page = basename($_SERVER['PHP_SELF']);
         <i class="fa-solid fa-check-double"></i> Approve Items
     </a>
 
-    <!-- Pinatinding Logout Button -->
-    <a onclick="confirmLogout()" style="margin-top: 20px; color: #f87171;">
+    <a onclick="confirmLogout()" style="margin-top: 20px; color: #f87171; cursor: pointer;">
         <i class="fa-solid fa-right-from-bracket"></i> Logout
     </a>
 </div>
@@ -130,32 +145,34 @@ $page = basename($_SERVER['PHP_SELF']);
                     <th>Item Name</th>
                     <th>Category</th>
                     <th>Quantity</th>
+                    <th>Reason</th>
                     <th>Action</th>
                 </tr>
             </thead>
             <tbody>
                 <?php
                 $res = $conn->query("SELECT * FROM item_requests ORDER BY id DESC");
-                if($res->num_rows > 0){
+                if($res && $res->num_rows > 0){
                     while($r = $res->fetch_assoc()){
                 ?>
                 <tr>
-                    <td><strong><?= htmlspecialchars($r['name']) ?></strong></td>
-                    <td><?= htmlspecialchars($r['category']) ?></td>
-                    <td><?= $r['quantity'] ?></td>
+                    <td><strong><?= htmlspecialchars($r['name'], ENT_QUOTES, 'UTF-8') ?></strong></td>
+                    <td><?= htmlspecialchars($r['category'], ENT_QUOTES, 'UTF-8') ?></td>
+                    <td><?= intval($r['quantity']) . ' ' . htmlspecialchars($r['uom'], ENT_QUOTES, 'UTF-8') ?></td>
+                    <td><div class="reason-text"><?= htmlspecialchars($r['reason'] ?? 'No reason provided', ENT_QUOTES, 'UTF-8') ?></div></td>
                     <td>
                         <div class="btn-group">
-                            <button onclick="handleAction(<?= $r['id'] ?>, 'approve')" class="btn-action btn-approve">
+                            <button onclick="handleAction(<?= intval($r['id']) ?>, 'approve')" class="btn-action btn-approve">
                                 <i class="fa-solid fa-check"></i> Approve
                             </button>
-                            <button onclick="handleAction(<?= $r['id'] ?>, 'decline')" class="btn-action btn-decline">
+                            <button onclick="handleAction(<?= intval($r['id']) ?>, 'decline')" class="btn-action btn-decline">
                                 <i class="fa-solid fa-xmark"></i> Decline
                             </button>
                         </div>
                     </td>
                 </tr>
                 <?php } } else { ?>
-                    <tr><td colspan="4" class="no-data">No pending requests at the moment.</td></tr>
+                    <tr><td colspan="5" class="no-data">No pending requests at the moment.</td></tr>
                 <?php } ?>
             </tbody>
         </table>
@@ -163,7 +180,6 @@ $page = basename($_SERVER['PHP_SELF']);
 </div>
 
 <script>
-    // Logout confirmation function katulad ng sa dashboard
     function confirmLogout() {
         Swal.fire({
             title: 'Logout?',
@@ -183,7 +199,6 @@ $page = basename($_SERVER['PHP_SELF']);
         });
     }
 
-    // Handle Approve/Decline actions
     function handleAction(id, type) {
         Swal.fire({
             title: type === 'approve' ? 'Approve this item?' : 'Decline this request?',
@@ -197,7 +212,9 @@ $page = basename($_SERVER['PHP_SELF']);
             color: '#fafaf9'
         }).then((result) => {
             if (result.isConfirmed) {
-                window.location.href = `approve_item.php?${type}_id=${id}`;
+                document.getElementById('formRequestInput').value = id;
+                document.getElementById('formActionInput').value = type;
+                document.getElementById('actionForm').submit();
             }
         });
     }
@@ -208,13 +225,20 @@ if(isset($_GET['msg'])){
     $msg = $_GET['msg'];
     $title = ($msg == 'approved') ? 'Approved!' : 'Declined!';
     $icon = ($msg == 'approved') ? 'success' : 'info';
+    
+    $safe_title = htmlspecialchars($title, ENT_QUOTES, 'UTF-8');
+    $safe_icon = htmlspecialchars($icon, ENT_QUOTES, 'UTF-8');
+    
     echo "<script>
         Swal.fire({ 
-            title: '$title', 
-            icon: '$icon', 
+            title: '$safe_title', 
+            icon: '$safe_icon', 
             background: '#1c1917', 
             color: '#fafaf9',
             confirmButtonColor: '#845c44'
+        }).then(() => {
+            // Nililinis ang URL parameter para mawala ang ?msg= pagkatapos lumabas ng alert
+            window.history.replaceState({}, document.title, window.location.pathname);
         });
     </script>";
 }
