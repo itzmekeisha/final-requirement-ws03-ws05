@@ -1,6 +1,15 @@
+
 <?php
 session_start();
 include "../config/db.php";
+
+function clean_output($data) {
+    return htmlspecialchars($data, ENT_QUOTES, 'UTF-8');
+}
+
+if (!isset($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
 
 if(!isset($_SESSION['user']) || $_SESSION['user']['role'] != 'admin'){
     header("Location: ../auth/login.php");
@@ -8,18 +17,26 @@ if(!isset($_SESSION['user']) || $_SESSION['user']['role'] != 'admin'){
 }
 
 $success = false;
+$error_msg = "";
+
 if($_SERVER["REQUEST_METHOD"] == "POST"){
-    $name = trim($_POST['name']);
-    $username = trim($_POST['username']);
-    $password = password_hash($_POST['password'], PASSWORD_BCRYPT);
-    $role = $_POST['role'];
-    $status = 'active';
+    if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+        $error_msg = "Security Error: CSRF token verification failed.";
+    } else {
+        $name = trim($_POST['name']);
+        $username = trim($_POST['username']);
+        $password = password_hash($_POST['password'], PASSWORD_BCRYPT);
+        $role = $_POST['role'];
+        $status = 'active';
 
-    $stmt = $conn->prepare("INSERT INTO users (full_name, username, password, role, status) VALUES (?, ?, ?, ?, ?)");
-    $stmt->bind_param("sssss", $name, $username, $password, $role, $status);
+        $stmt = $conn->prepare("INSERT INTO users (full_name, username, password, role, status) VALUES (?, ?, ?, ?, ?)");
+        $stmt->bind_param("sssss", $name, $username, $password, $role, $status);
 
-    if($stmt->execute()){
-        $success = true;
+        if($stmt->execute()){
+            $success = true;
+        } else {
+            $error_msg = "Database error. Failed to register the user account.";
+        }
     }
 }
 
@@ -63,6 +80,10 @@ $page = basename($_SERVER['PHP_SELF']);
             padding-top: 20px;
             border-right: 1px solid rgba(132, 92, 68, 0.2);
             overflow-y: auto;
+        }
+        
+        select {
+            -webkit-appearance: none;
         }
 
         .sidebar h2 {
@@ -176,7 +197,6 @@ $page = basename($_SERVER['PHP_SELF']);
     <a href="reset_password.php"><i class="fa-solid fa-key"></i> Reset Password</a>
     <a href="approve_item.php"><i class="fa-solid fa-check-double"></i> Approve Items</a>
 
-    <!-- Pinatinding Logout Button -->
     <a onclick="confirmLogout()" style="margin-top: 20px; color: #f87171; cursor: pointer;">
         <i class="fa-solid fa-right-from-bracket"></i> Logout
     </a>
@@ -187,6 +207,7 @@ $page = basename($_SERVER['PHP_SELF']);
         <h1><i class="fa-solid fa-user-gear"></i> Create User</h1>
         
         <form method="POST" autocomplete="off">
+            <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token']; ?>">
             <input type="text" style="display:none">
             <input type="password" style="display:none">
 
@@ -209,7 +230,6 @@ $page = basename($_SERVER['PHP_SELF']);
                 <label>Assign Role</label>
                 <select name="role">
                     <option value="user">Standard User</option>
-                    <option value="admin">Administrator</option>
                 </select>
             </div>
 
@@ -221,7 +241,6 @@ $page = basename($_SERVER['PHP_SELF']);
 </div>
 
 <script>
-    // Logout function katulad ng sa dashboard
     function confirmLogout() {
         Swal.fire({
             title: 'Logout?',
@@ -253,7 +272,20 @@ $page = basename($_SERVER['PHP_SELF']);
         window.location.href = 'admin_dashboard.php';
     });
     <?php } ?>
+
+    <?php if($error_msg){ ?>
+    Swal.fire({
+        title: 'Error!',
+        text: '<?= clean_output($error_msg); ?>',
+        icon: 'error',
+        confirmButtonColor: '#845c44',
+        background: '#1c1917',
+        color: '#fafaf9'
+    });
+    <?php } ?>
 </script>
 
 </body>
 </html>
+
+```
