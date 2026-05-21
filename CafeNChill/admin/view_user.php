@@ -2,24 +2,40 @@
 session_start();
 include "../config/db.php";
 
-
 if(!isset($_SESSION['user']) || $_SESSION['user']['role'] != 'admin'){
     header("Location: ../auth/login.php");
     exit();
 }
 
-if(isset($_GET['archive_id']) && is_numeric($_GET['archive_id'])){
-    $id = intval($_GET['archive_id']);
+if (!isset($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
+if($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['archive_user'])){
     
-    if($id != $_SESSION['user']['id']){
-        $stmt = $conn->prepare("UPDATE users SET status='archived' WHERE id=?");
-        $stmt->bind_param("i", $id);
-        $stmt->execute();
-        $stmt->close();
-        $_SESSION['success'] = "User archived successfully!";
-    } else {
-        $_SESSION['error'] = "You cannot archive your own account!";
+    if(!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']){
+        die("Security Error: CSRF validation failed.");
     }
+
+    $id = intval($_POST['user_id']);
+    
+    if($id > 0){
+        if($id != $_SESSION['user']['id']){
+            $stmt = $conn->prepare("UPDATE users SET status='archived' WHERE id=?");
+            $stmt->bind_param("i", $id);
+            if($stmt->execute()){
+                $_SESSION['success'] = "User archived successfully!";
+            } else {
+                $_SESSION['error'] = "Database Error: Failed to archive user.";
+            }
+            $stmt->close();
+        } else {
+            $_SESSION['error'] = "You cannot archive your own account!";
+        }
+    } else {
+        $_SESSION['error'] = "Invalid user identification ID.";
+    }
+    
     header("Location: view_user.php");
     exit();
 }
@@ -103,6 +119,7 @@ $page = basename($_SERVER['PHP_SELF']);
             margin-left: 260px;
             padding: 40px;
             width: calc(100% - 260px);
+            box-sizing: border-box;
         }
 
         .header-section { margin-bottom: 30px; }
@@ -146,11 +163,14 @@ $page = basename($_SERVER['PHP_SELF']);
             background: #ef4444;
             color: white;
             border: none;
-            padding: 6px 12px;
+            padding: 8px 12px;
             border-radius: 6px;
             cursor: pointer;
             font-size: 0.8rem;
             transition: 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
         }
         .btn-archive:hover { background: #dc2626; }
 
@@ -163,43 +183,25 @@ $page = basename($_SERVER['PHP_SELF']);
 </head>
 <body>
 
+<form id="secureArchiveForm" method="POST" action="view_user.php" style="display:none;">
+    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES, 'UTF-8'); ?>">
+    <input type="hidden" name="user_id" id="archiveUserId" value="">
+    <input type="hidden" name="archive_user" value="1">
+</form>
+
 <div class="sidebar">
     <h2>CAFE N CHILL</h2>
-    <a href="admin_dashboard.php" class="<?= $page == 'admin_dashboard.php' ? 'active' : '' ?>">
-        <i class="fa-solid fa-gauge"></i> Dashboard
-    </a>
-    <a href="add_item.php" class="<?= $page == 'add_item.php' ? 'active' : '' ?>">
-        <i class="fa-solid fa-plus"></i> Add Item
-    </a>
-    <a href="view_items.php" class="<?= $page == 'view_items.php' ? 'active' : '' ?>">
-        <i class="fa-solid fa-box-open"></i> View Items
-    </a>
-    <a href="update_item.php" class="<?= $page == 'update_item.php' ? 'active' : '' ?>">
-        <i class="fa-solid fa-pen-to-square"></i> Update Item
-    </a>
-    <a href="archived_items.php" class="<?= $page == 'archived_items.php' ? 'active' : '' ?>">
-        <i class="fa-solid fa-box-archive"></i> Archived Items
-    </a>
-    <a href="view_user.php" class="<?= $page == 'view_user.php' ? 'active' : '' ?>">
-        <i class="fa-solid fa-users"></i> View Users
-    </a>
-    <a href="add_user.php" class="<?= $page == 'add_user.php' ? 'active' : '' ?>">
-        <i class="fa-solid fa-user-plus"></i> Add User
-    </a>
-    <a href="archived_users.php" class="<?= $page == 'archived_users.php' ? 'active' : '' ?>">
-        <i class="fa-solid fa-user-slash"></i> Archived Users
-    </a>
-    <a href="reset_password.php" class="<?= $page == 'reset_password.php' ? 'active' : '' ?>">
-        <i class="fa-solid fa-key"></i> Reset Password
-    </a>
-    <a href="approve_item.php" class="<?= $page == 'approve_item.php' ? 'active' : '' ?>">
-        <i class="fa-solid fa-check-double"></i> Approve Items
-    </a>
-
-   
-    <a onclick="confirmLogout()" style="margin-top: 20px; color: #f87171; cursor: pointer;">
-        <i class="fa-solid fa-right-from-bracket"></i> Logout
-    </a>
+    <a href="admin_dashboard.php" class="<?= $page == 'admin_dashboard.php' ? 'active' : '' ?>"><i class="fa-solid fa-gauge"></i> Dashboard</a>
+    <a href="add_item.php" class="<?= $page == 'add_item.php' ? 'active' : '' ?>"><i class="fa-solid fa-plus"></i> Add Item</a>
+    <a href="view_items.php" class="<?= $page == 'view_items.php' ? 'active' : '' ?>"><i class="fa-solid fa-box-open"></i> View Items</a>
+    <a href="update_item.php" class="<?= $page == 'update_item.php' ? 'active' : '' ?>"><i class="fa-solid fa-pen-to-square"></i> Update Item</a>
+    <a href="archived_items.php" class="<?= $page == 'archived_items.php' ? 'active' : '' ?>"><i class="fa-solid fa-box-archive"></i> Archived Items</a>
+    <a href="view_user.php" class="<?= $page == 'view_user.php' ? 'active' : '' ?>"><i class="fa-solid fa-users"></i> View Users</a>
+    <a href="add_user.php" class="<?= $page == 'add_user.php' ? 'active' : '' ?>"><i class="fa-solid fa-user-plus"></i> Add User</a>
+    <a href="archived_users.php" class="<?= $page == 'archived_users.php' ? 'active' : '' ?>"><i class="fa-solid fa-user-slash"></i> Archived Users</a>
+    <a href="reset_password.php" class="<?= $page == 'reset_password.php' ? 'active' : '' ?>"><i class="fa-solid fa-key"></i> Reset Password</a>
+    <a href="approve_item.php" class="<?= $page == 'approve_item.php' ? 'active' : '' ?>"><i class="fa-solid fa-check-double"></i> Approve Items</a>
+    <a onclick="confirmLogout()" style="margin-top: 20px; color: #f87171; cursor: pointer;"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
 </div>
 
 <div class="main">
@@ -219,16 +221,16 @@ $page = basename($_SERVER['PHP_SELF']);
             </thead>
             <tbody>
                 <?php
-                $res = $conn->query("SELECT * FROM users WHERE status='active' AND role='user' ORDER BY id DESC");
+                $res = $conn->query("SELECT id, full_name, username, role FROM users WHERE status='active' AND role='user' ORDER BY id DESC");
                 if($res && $res->num_rows > 0){
                     while($r = $res->fetch_assoc()){
                 ?>
                 <tr>
-                    <td><strong><?php echo htmlspecialchars($r['full_name']); ?></strong></td>
-                    <td>@<?php echo htmlspecialchars($r['username']); ?></td>
-                    <td><span class="role-badge"><?php echo strtoupper($r['role']); ?></span></td>
+                    <td><strong><?php echo htmlspecialchars($r['full_name'], ENT_QUOTES, 'UTF-8'); ?></strong></td>
+                    <td>@<?php echo htmlspecialchars($r['username'], ENT_QUOTES, 'UTF-8'); ?></td>
+                    <td><span class="role-badge"><?php echo htmlspecialchars(strtoupper($r['role']), ENT_QUOTES, 'UTF-8'); ?></span></td>
                     <td>
-                        <button onclick="confirmArchive(<?= $r['id'] ?>)" class="btn-archive">
+                        <button type="button" onclick="confirmArchive(<?= intval($r['id']) ?>)" class="btn-archive">
                             <i class="fa-solid fa-user-slash"></i> Archive
                         </button>
                     </td>
@@ -258,12 +260,12 @@ $page = basename($_SERVER['PHP_SELF']);
             color: '#fafaf9'
         }).then((result) => {
             if (result.isConfirmed) {
-                window.location.href = "view_user.php?archive_id=" + id;
+                document.getElementById('archiveUserId').value = id;
+                document.getElementById('secureArchiveForm').submit();
             }
         })
     }
 
-    
     function confirmLogout() {
         Swal.fire({
             title: 'Logout?',
@@ -282,13 +284,12 @@ $page = basename($_SERVER['PHP_SELF']);
             }
         });
     }
-
     <?php if(isset($_SESSION['success'])): ?>
-        Swal.fire({ icon: 'success', title: 'Success', text: '<?= $_SESSION['success'] ?>', background: '#1c1917', color: '#fafaf9' });
+        Swal.fire({ icon: 'success', title: 'Success', text: '<?= htmlspecialchars($_SESSION['success'], ENT_QUOTES, "UTF-8") ?>', background: '#1c1917', color: '#fafaf9' });
     <?php unset($_SESSION['success']); endif; ?>
 
     <?php if(isset($_SESSION['error'])): ?>
-        Swal.fire({ icon: 'error', title: 'Error', text: '<?= $_SESSION['error'] ?>', background: '#1c1917', color: '#fafaf9' });
+        Swal.fire({ icon: 'error', title: 'Error', text: '<?= htmlspecialchars($_SESSION['error'], ENT_QUOTES, "UTF-8") ?>', background: '#1c1917', color: '#fafaf9' });
     <?php unset($_SESSION['error']); endif; ?>
 </script>
 
