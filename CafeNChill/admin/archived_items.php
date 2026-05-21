@@ -2,36 +2,47 @@
 session_start();
 include "../config/db.php";
 
-
 if(!isset($_SESSION['user']) || $_SESSION['user']['role'] != 'admin'){
     header("Location: ../auth/login.php");
     exit();
 }
 
+
+if (!isset($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
 $page = basename($_SERVER['PHP_SELF']);
 
 
-if(isset($_GET['archive_id']) && is_numeric($_GET['archive_id'])){
-    $id = intval($_GET['archive_id']);
-    $stmt = $conn->prepare("UPDATE items SET status='archived' WHERE id=?");
-    $stmt->bind_param("i", $id);
-    $stmt->execute();
-    $stmt->close();
+if($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['action_type'])){
+    
+    
+    if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+        die("Security Error: CSRF token verification failed.");
+    }
 
-    $_SESSION['success'] = "Item archived successfully!";
-    header("Location: archived_items.php");
-    exit();
-}
+    $id = intval($_POST['item_id']);
+    $action = $_POST['action_type'];
 
+    if($action === 'archive'){
+        $stmt = $conn->prepare("UPDATE items SET status='archived' WHERE id=?");
+        $stmt->bind_param("i", $id);
+        if($stmt->execute()){
+            $_SESSION['success'] = "Item archived successfully!";
+        }
+        $stmt->close();
+    } 
+    
+    if($action === 'restore'){
+        $stmt = $conn->prepare("UPDATE items SET status='approved' WHERE id=?");
+        $stmt->bind_param("i", $id);
+        if($stmt->execute()){
+            $_SESSION['success'] = "Item restored successfully!";
+        }
+        $stmt->close();
+    }
 
-if(isset($_GET['restore_id']) && is_numeric($_GET['restore_id'])){
-    $id = intval($_GET['restore_id']);
-    $stmt = $conn->prepare("UPDATE items SET status='approved' WHERE id=?");
-    $stmt->bind_param("i", $id);
-    $stmt->execute();
-    $stmt->close();
-
-    $_SESSION['success'] = "Item restored successfully!";
     header("Location: archived_items.php");
     exit();
 }
@@ -40,148 +51,161 @@ if(isset($_GET['restore_id']) && is_numeric($_GET['restore_id'])){
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Cafe N Chill | Archived Items</title>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
-<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cafe N Chill | Archived Items</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap');
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap');
 
-:root{
-    --bg-color:#0c0a09;
-    --sidebar-color:#1c1917;
-    --coffee-brown:#845c44;
-    --cream-accent:#d4a373;
-    --text-light:#fafaf9;
-    --card-bg:#292524;
-}
+        :root{
+            --bg-color:#0c0a09;
+            --sidebar-color:#1c1917;
+            --coffee-brown:#845c44;
+            --cream-accent:#d4a373;
+            --text-light:#fafaf9;
+            --card-bg:#292524;
+        }
 
-body{
-    margin:0;
-    font-family:'Poppins', sans-serif;
-    background:var(--bg-color);
-    color:var(--text-light);
-    display:flex;
-}
+        body{
+            margin:0;
+            font-family:'Poppins', sans-serif;
+            background:var(--bg-color);
+            color:var(--text-light);
+            display:flex;
+        }
 
-.sidebar {
-    width: 260px;
-    height: 100vh;
-    background: var(--sidebar-color);
-    position: fixed;
-    padding-top: 20px;
-    border-right: 1px solid rgba(132, 92, 68, 0.2);
-    overflow-y: auto;
-}
+        .sidebar {
+            width: 260px;
+            height: 100vh;
+            background: var(--sidebar-color);
+            position: fixed;
+            padding-top: 20px;
+            border-right: 1px solid rgba(132, 92, 68, 0.2);
+            overflow-y: auto;
+        }
 
-.sidebar h2 {
-    color: var(--cream-accent);
-    text-align: center;
-    font-size: 1.3rem;
-    margin-bottom: 30px;
-    letter-spacing: 2px;
-    border-bottom: 1px solid rgba(212, 163, 115, 0.1);
-    padding-bottom: 20px;
-}
+        .sidebar h2 {
+            color: var(--cream-accent);
+            text-align: center;
+            font-size: 1.3rem;
+            margin-bottom: 30px;
+            letter-spacing: 2px;
+            border-bottom: 1px solid rgba(212, 163, 115, 0.1);
+            padding-bottom: 20px;
+        }
 
-.sidebar a {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    color: #a8a29e;
-    padding: 12px 25px;
-    text-decoration: none;
-    transition: 0.3s;
-    font-size: 0.9rem;
-    cursor: pointer;
-}
+        .sidebar a {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: #a8a29e;
+            padding: 12px 25px;
+            text-decoration: none;
+            transition: 0.3s;
+            font-size: 0.9rem;
+            cursor: pointer;
+        }
 
-.sidebar a:hover {
-    background: rgba(132, 92, 68, 0.1);
-    color: var(--cream-accent);
-}
+        .sidebar a:hover {
+            background: rgba(132, 92, 68, 0.1);
+            color: var(--cream-accent);
+        }
 
-.sidebar a.active {
-    background: var(--coffee-brown);
-    color: white;
-    border-left: 4px solid var(--cream-accent);
-}
+        .sidebar a.active {
+            background: var(--coffee-brown);
+            color: white;
+            border-left: 4px solid var(--cream-accent);
+        }
 
-.main{
-    margin-left:260px;
-    padding:40px;
-    width:100%;
-}
+        .main{
+            margin-left:260px;
+            padding:40px;
+            width: calc(100% - 260px);
+            box-sizing: border-box;
+        }
 
-h1{
-    color:var(--cream-accent);
-    margin-bottom:30px;
-}
+        h1{
+            color:var(--cream-accent);
+            margin-bottom:30px;
+        }
 
-.table-container{
-    background:var(--card-bg);
-    padding:25px;
-    border-radius:15px;
-    overflow-x:auto;
-}
+        .table-container{
+            background:var(--card-bg);
+            padding:25px;
+            border-radius:15px;
+            overflow-x:auto;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
 
-table{
-    width:100%;
-    border-collapse:collapse;
-}
+        table{
+            width:100%;
+            border-collapse:collapse;
+        }
 
-th{
-    text-align:left;
-    padding:15px;
-    color:var(--cream-accent);
-    border-bottom:2px solid #3f3f46;
-    text-transform:uppercase;
-    font-size:.85rem;
-}
+        th{
+            text-align:left;
+            padding:15px;
+            color:var(--cream-accent);
+            border-bottom:2px solid #3f3f46;
+            text-transform:uppercase;
+            font-size:.85rem;
+        }
 
-td{
-    padding:15px;
-    border-bottom:1px solid #3f3f46;
-}
+        td{
+            padding:15px;
+            border-bottom:1px solid #3f3f46;
+            font-size: 0.9rem;
+        }
 
-.status-archived{
-    color:#ef4444;
-    font-weight:600;
-    font-size:.75rem;
-    background:rgba(239,68,68,.1);
-    padding:4px 10px;
-    border-radius:6px;
-}
+        .status-archived{
+            color:#ef4444;
+            font-weight:600;
+            font-size:.75rem;
+            background:rgba(239,68,68,.1);
+            padding:4px 10px;
+            border-radius:6px;
+        }
 
-.btn-restore{
-    background:#22c55e;
-    color:white;
-    padding:8px 15px;
-    border-radius:8px;
-    text-decoration:none;
-    font-size:0.85rem;
-    font-weight:600;
-    display:inline-flex;
-    align-items:center;
-    gap:8px;
-    transition:0.3s;
-}
+        .btn-restore{
+            background:#22c55e;
+            color:white;
+            padding:8px 15px;
+            border-radius:8px;
+            text-decoration:none;
+            font-size:0.85rem;
+            font-weight:600;
+            display:inline-flex;
+            align-items:center;
+            gap:8px;
+            transition:0.3s;
+            border: none;
+            cursor: pointer;
+        }
 
-.btn-restore:hover{
-    background:#16a34a;
-}
+        .btn-restore:hover{
+            background:#16a34a;
+            transform: translateY(-2px);
+        }
 
-.no-data{
-    text-align:center;
-    padding:40px;
-    color:#a8a29e;
-}
-</style>
+        .no-data{
+            text-align:center;
+            padding:40px;
+            color:#a8a29e;
+            font-style: italic;
+        }
+    </style>
 </head>
 
 <body>
+
+<form id="securityForm" method="POST" style="display:none;">
+    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
+    <input type="hidden" name="item_id" id="formItemInput">
+    <input type="hidden" name="action_type" id="formActionInput">
+</form>
 
 <div class="sidebar">
     <h2>CAFE N CHILL</h2>
@@ -216,7 +240,6 @@ td{
         <i class="fa-solid fa-check-double"></i> Approve Items
     </a>
 
-   
     <a onclick="confirmLogout()" style="margin-top: 20px; color: #f87171; cursor: pointer;">
         <i class="fa-solid fa-right-from-bracket"></i> Logout
     </a>
@@ -246,14 +269,14 @@ td{
                     while($r = $res->fetch_assoc()){
                 ?>
                 <tr>
-                    <td><strong><?= htmlspecialchars($r['name']) ?></strong></td>
-                    <td><?= htmlspecialchars($r['category']) ?></td>
-                    <td><?= $r['quantity'] ?></td>
+                    <td><strong><?= htmlspecialchars($r['name'], ENT_QUOTES, 'UTF-8') ?></strong></td>
+                    <td><?= htmlspecialchars($r['category'], ENT_QUOTES, 'UTF-8') ?></td>
+                    <td><?= intval($r['quantity']) ?></td>
                     <td><span class="status-archived">ARCHIVED</span></td>
                     <td>
-                        <a href="#" class="btn-restore" onclick="confirmRestore(<?= $r['id'] ?>)">
+                        <button class="btn-restore" onclick="confirmRestore(<?= intval($r['id']) ?>)">
                             <i class="fa-solid fa-rotate-left"></i> Restore
-                        </a>
+                        </button>
                     </td>
                 </tr>
                 <?php } } else { ?>
@@ -299,7 +322,9 @@ function confirmRestore(id){
         color: '#fafaf9'
     }).then((result)=>{
         if(result.isConfirmed){
-            window.location.href = "archived_items.php?restore_id=" + id;
+            document.getElementById('formItemInput').value = id;
+            document.getElementById('formActionInput').value = 'restore';
+            document.getElementById('securityForm').submit();
         }
     });
 }
@@ -308,7 +333,7 @@ function confirmRestore(id){
 Swal.fire({
     icon:'success',
     title:'Success',
-    text:'<?= $_SESSION['success'] ?>',
+    text:'<?= htmlspecialchars($_SESSION['success'], ENT_QUOTES, 'UTF-8') ?>',
     confirmButtonColor:'#845c44',
     background:'#1c1917',
     color:'#fafaf9'
