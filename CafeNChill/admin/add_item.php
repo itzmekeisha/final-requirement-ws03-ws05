@@ -1,6 +1,11 @@
+
 <?php
 session_start();
 include "../config/db.php";
+
+if (!isset($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
 
 if(!isset($_SESSION['user'])){
     header("Location: ../auth/login.php");
@@ -8,18 +13,31 @@ if(!isset($_SESSION['user'])){
 }
 
 $success = false;
+$error_msg = "";
+
 if($_SERVER["REQUEST_METHOD"] == "POST"){
-    $n = trim($_POST['name']);
-    $c = trim($_POST['category']);
-    $q = $_POST['quantity'];
-    $u_id = $_SESSION['user']['id']; 
-    $status = "pending"; 
+    if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+        $error_msg = "Security Error: CSRF token verification failed.";
+    } else {
+        $n = trim($_POST['name']);
+        $c = trim($_POST['category']);
+        $q = intval($_POST['quantity']);
+        $uom = trim($_POST['uom']); 
+        $cost = floatval($_POST['cost_price']); 
+        $price = floatval($_POST['selling_price']); 
+        $desc = trim($_POST['description']); 
+        
+        $u_id = $_SESSION['user']['id']; 
+        $status = "pending"; 
 
-    $stmt = $conn->prepare("INSERT INTO item_requests (name, category, quantity, user_id, status) VALUES (?, ?, ?, ?, ?)");
-    $stmt->bind_param("ssiis", $n, $c, $q, $u_id, $status);
+        $stmt = $conn->prepare("INSERT INTO item_requests (name, category, quantity, uom, cost_price, selling_price, description, user_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->bind_param("ssisddsis", $n, $c, $q, $uom, $cost, $price, $desc, $u_id, $status);
 
-    if($stmt->execute()){
-        $success = true;
+        if($stmt->execute()){
+            $success = true;
+        } else {
+            $error_msg = "Database error. Failed to submit the item request.";
+        }
     }
 }
 
@@ -35,7 +53,7 @@ $page = basename($_SERVER['PHP_SELF']);
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap');
 
         :root {
             --bg-color: #0c0a09;
@@ -44,6 +62,7 @@ $page = basename($_SERVER['PHP_SELF']);
             --cream-accent: #d4a373;
             --text-light: #fafaf9;
             --card-bg: #292524;
+            --input-bg: #1c1917;
         }
 
         body {
@@ -54,7 +73,6 @@ $page = basename($_SERVER['PHP_SELF']);
             display: flex;
         }
         
-      
         .sidebar {
             width: 260px;
             height: 100vh;
@@ -98,10 +116,9 @@ $page = basename($_SERVER['PHP_SELF']);
             border-left: 4px solid var(--cream-accent);
         }
 
-        
         .main {
             margin-left: 260px;
-            padding: 40px;
+            padding: 40px 20px;
             width: calc(100% - 260px);
             min-height: 100vh;
             display: flex;
@@ -114,7 +131,7 @@ $page = basename($_SERVER['PHP_SELF']);
             background: var(--card-bg);
             padding: 40px;
             width: 100%;
-            max-width: 500px;
+            max-width: 600px;
             border-radius: 20px;
             box-shadow: 0 20px 40px rgba(0,0,0,0.4);
             border: 1px solid rgba(132, 92, 68, 0.2);
@@ -122,27 +139,30 @@ $page = basename($_SERVER['PHP_SELF']);
 
         h1 {
             color: var(--cream-accent);
-            margin-bottom: 10px;
+            margin-bottom: 5px;
             text-align: center;
             font-weight: 600;
         }
 
-        .input-group { margin-bottom: 20px; }
-        label { display: block; margin-bottom: 8px; font-size: 0.9rem; color: #a8a29e; }
+        .input-group { margin-bottom: 18px; }
+        .row-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        
+        label { display: block; margin-bottom: 8px; font-size: 0.8rem; color: #a8a29e; text-transform: uppercase; letter-spacing: 0.5px; }
 
-        input {
+        input, select, textarea {
             width: 100%;
             padding: 12px 15px;
-            background: #1c1917;
+            background: var(--input-bg);
             border: 1px solid #444;
             border-radius: 10px;
             color: white;
             outline: none;
             box-sizing: border-box;
             transition: 0.3s;
+            font-family: 'Poppins', sans-serif;
         }
 
-        input:focus { border-color: var(--coffee-brown); }
+        input:focus, select:focus, textarea:focus { border-color: var(--coffee-brown); background: #221f1d; }
 
         button {
             width: 100%;
@@ -155,13 +175,14 @@ $page = basename($_SERVER['PHP_SELF']);
             font-weight: 600;
             cursor: pointer;
             transition: 0.3s;
+            margin-top: 10px;
         }
 
-        button:hover { background: var(--cream-accent); transform: translateY(-2px); }
+        button:hover { background: #6b4a36; transform: translateY(-2px); }
 
         .back-link { 
             display: inline-block;
-            margin-top: 25px; 
+            margin-top: 20px; 
             color: #a8a29e; 
             text-decoration: none; 
             font-size: 0.85rem;
@@ -174,12 +195,8 @@ $page = basename($_SERVER['PHP_SELF']);
 
 <div class="sidebar">
     <h2>CAFE N CHILL</h2>
-    <a href="admin_dashboard.php" class="<?= $page == 'admin_dashboard.php' ? 'active' : '' ?>">
-        <i class="fa-solid fa-gauge"></i> Dashboard
-    </a>
-    <a href="add_item.php" class="<?= $page == 'add_item.php' ? 'active' : '' ?>">
-        <i class="fa-solid fa-plus"></i> Add Item
-    </a>
+    <a href="admin_dashboard.php" class="<?= $page == 'admin_dashboard.php' ? 'active' : '' ?>"><i class="fa-solid fa-gauge"></i> Dashboard</a>
+    <a href="add_item.php" class="<?= $page == 'add_item.php' ? 'active' : '' ?>"><i class="fa-solid fa-plus"></i> Add Item</a>
     <a href="view_items.php"><i class="fa-solid fa-box-open"></i> View Items</a>
     <a href="update_item.php"><i class="fa-solid fa-pen-to-square"></i> Update Item</a>
     <a href="archived_items.php"><i class="fa-solid fa-box-archive"></i> Archived Items</a>
@@ -188,10 +205,7 @@ $page = basename($_SERVER['PHP_SELF']);
     <a href="archived_users.php"><i class="fa-solid fa-user-slash"></i> Archived Users</a>
     <a href="reset_password.php"><i class="fa-solid fa-key"></i> Reset Password</a>
     <a href="approve_item.php"><i class="fa-solid fa-check-double"></i> Approve Items</a>
-
-    <a onclick="confirmLogout()" style="margin-top: 20px; color: #f87171;">
-        <i class="fa-solid fa-right-from-bracket"></i> Logout
-    </a>
+    <a onclick="confirmLogout()" style="margin-top: 20px; color: #f87171; cursor: pointer;"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
 </div>
 
 <div class="main">
@@ -200,19 +214,49 @@ $page = basename($_SERVER['PHP_SELF']);
         <p style="text-align: center; color: #d4a373; font-size: 0.8rem; margin-bottom: 25px; opacity: 0.8;">Waiting for Admin Approval</p>
         
         <form method="POST">
-            <div class="input-group">
-                <label>Item Name</label>
-                <input type="text" name="name" placeholder="e.g. Arabica Beans" required>
+            <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token']; ?>">
+
+            <div class="row-grid">
+                <div class="input-group">
+                    <label>Item Name</label>
+                    <input type="text" name="name" placeholder="e.g. Arabica Beans" required>
+                </div>
+                <div class="input-group">
+                    <label>Category</label>
+                    <input type="text" name="category" placeholder="e.g. Coffee" required>
+                </div>
+            </div>
+
+            <div class="row-grid">
+                <div class="input-group">
+                    <label>Initial Quantity</label>
+                    <input type="number" name="quantity" min="0" placeholder="0" required>
+                </div>
+                <div class="input-group">
+                    <label>Unit (UOM)</label>
+                    <select name="uom" required>
+                        <option value="pcs">Piece (pcs)</option>
+                        <option value="12oz">12 oz (Small Size)</option>
+                        <option value="16oz">16 oz (Medium Size)</option>
+                        <option value="22oz">22 oz (Large Size)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="row-grid">
+                <div class="input-group">
+                    <label>Cost Price (₱)</label>
+                    <input type="number" step="0.01" min="0" name="cost_price" placeholder="0.00" required>
+                </div>
+                <div class="input-group">
+                    <label>Selling Price (₱)</label>
+                    <input type="number" step="0.01" min="0" name="selling_price" placeholder="0.00" required>
+                </div>
             </div>
 
             <div class="input-group">
-                <label>Category</label>
-                <input type="text" name="category" placeholder="e.g. Coffee" required>
-            </div>
-
-            <div class="input-group">
-                <label>Quantity</label>
-                <input type="number" name="quantity" placeholder="0" required>
+                <label>Item Description / Specifications</label>
+                <textarea name="description" rows="3" placeholder="Enter item notes, supplier details, or descriptions here..."></textarea>
             </div>
 
             <button type="submit">Confirm Add Item</button>
@@ -256,6 +300,19 @@ function confirmLogout() {
         color: '#fafaf9'
     }).then(() => {
         window.location.href = 'add_item.php';
+    });
+</script>
+<?php } ?>
+
+<?php if($error_msg){ ?>
+<script>
+    Swal.fire({
+        title: 'Error!',
+        text: '<?= htmlspecialchars($error_msg, ENT_QUOTES, 'UTF-8'); ?>',
+        icon: 'error',
+        confirmButtonColor: '#845c44',
+        background: '#1c1917',
+        color: '#fafaf9'
     });
 </script>
 <?php } ?>
