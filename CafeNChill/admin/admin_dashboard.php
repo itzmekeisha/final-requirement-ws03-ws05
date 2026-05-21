@@ -84,11 +84,11 @@ $page = basename($_SERVER['PHP_SELF']);
             border-left: 4px solid var(--cream-accent);
         }
 
-
         .main {
             margin-left: 260px;
             padding: 40px;
-            width: 100%;
+            width: calc(100% - 260px);
+            box-sizing: border-box;
         }
 
         .header-section {
@@ -100,7 +100,6 @@ $page = basename($_SERVER['PHP_SELF']);
             margin-bottom: 30px;
         }
 
- 
         .dashboard-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -194,51 +193,47 @@ $page = basename($_SERVER['PHP_SELF']);
     <a href="reset_password.php"><i class="fa-solid fa-key"></i> Reset Password</a>
     <a href="approve_item.php"><i class="fa-solid fa-check-double"></i> Approve Items</a>
 
-    <a onclick="confirmLogout()" style="margin-top: 20px; color: #f87171;">
+    <a onclick="confirmLogout()" style="margin-top: 20px; color: #f87171; cursor: pointer;">
         <i class="fa-solid fa-right-from-bracket"></i> Logout
     </a>
 </div>
 
-
 <div class="main">
     <div class="header-section">
         <h1 style="margin:0;">Welcome, Admin!</h1>
-        <p style="opacity:0.8; margin:5px 0 0;">Cafe N Chill  Inventory Management System.</p>
+        <p style="opacity:0.8; margin:5px 0 0;">Cafe N Chill Inventory Management System.</p>
     </div>
 
-   
     <?php
-    $pendingCount = $conn->query("SELECT COUNT(*) as c FROM item_requests WHERE status='pending'")->fetch_assoc()['c'];
+ 
+    $pendingCount = $conn->query("SELECT COUNT(*) as c FROM item_requests WHERE status='pending'")->fetch_assoc()['c'] ?? 0;
+    $approvedCount = $conn->query("SELECT COUNT(*) as c FROM items WHERE status='approved'")->fetch_assoc()['c'] ?? 0;
+    $archivedCount = $conn->query("SELECT COUNT(*) as c FROM items WHERE status='archived'")->fetch_assoc()['c'] ?? 0;
     
-    $approvedCount = $conn->query("SELECT COUNT(*) as c FROM items WHERE status='approved'")->fetch_assoc()['c'];
-    $archivedCount = $conn->query("SELECT COUNT(*) as c FROM items WHERE status='archived'")->fetch_assoc()['c'];
-    
-   
     $totalCount = $approvedCount + $pendingCount;
-    
-    $totalUsers = $conn->query("SELECT COUNT(*) as c FROM users")->fetch_assoc()['c'];
+    $totalUsers = $conn->query("SELECT COUNT(*) as c FROM users")->fetch_assoc()['c'] ?? 0;
     ?>
 
     <div class="dashboard-grid">
         <div class="stat-card">
             <h3>Total Active Items</h3>
-            <p><?= $totalCount ?></p>
+            <p><?= intval($totalCount) ?></p>
         </div>
         <div class="stat-card green">
             <h3>Approved Items</h3>
-            <p><?= $approvedCount ?></p>
+            <p><?= intval($approvedCount) ?></p>
         </div>
         <div class="stat-card yellow">
             <h3>Pending Items</h3>
-            <p><?= $pendingCount ?></p>
+            <p><?= intval($pendingCount) ?></p>
         </div>
         <div class="stat-card red">
             <h3>Archived Items</h3>
-            <p><?= $archivedCount ?></p>
+            <p><?= intval($archivedCount) ?></p>
         </div>
         <div class="stat-card">
             <h3>Total Users</h3>
-            <p><?= $totalUsers ?></p>
+            <p><?= intval($totalUsers) ?></p>
         </div>
     </div>
 
@@ -263,30 +258,39 @@ $page = basename($_SERVER['PHP_SELF']);
                 ";
                 
                 $res = $conn->query($sql);
-                while($r = $res->fetch_assoc()):
+                if($res && $res->num_rows > 0):
+                    while($r = $res->fetch_assoc()):
                 ?>
                 <tr>
                     <td>
                         <i class="fa-solid fa-cube" style="color:var(--coffee-brown); margin-right:8px;"></i>
-                        <?= htmlspecialchars($r['name']) ?>
+                        <?= htmlspecialchars($r['name'], ENT_QUOTES, 'UTF-8') ?>
                     </td>
-                    <td><?= htmlspecialchars($r['category']) ?></td>
-                    <td><strong><?= $r['quantity'] ?></strong></td>
+                    <td><?= htmlspecialchars($r['category'], ENT_QUOTES, 'UTF-8') ?></td>
+                    <td><strong><?= intval($r['quantity']) ?></strong></td>
                     <td>
                         <?php
-                        if($r['status'] == 'approved'):
+                        $status = $r['status'];
+                        if($status == 'approved'):
                             echo "<span class='status-badge bg-approved'>Approved</span>";
-                        elseif($r['status'] == 'pending'):
+                        elseif($status == 'pending'):
                             echo "<span class='status-badge bg-pending'>Pending</span>";
-                        elseif($r['status'] == 'archived'):
+                        elseif($status == 'archived'):
                             echo "<span class='status-badge bg-archived'>Archived</span>";
                         else:
-                            echo "<span class='status-badge bg-pending'>" . htmlspecialchars($r['status']) . "</span>";
+                            echo "<span class='status-badge bg-pending'>" . htmlspecialchars($status, ENT_QUOTES, 'UTF-8') . "</span>";
                         endif;
                         ?>
                     </td>
                 </tr>
-                <?php endwhile; ?>
+                <?php 
+                    endwhile; 
+                else:
+                ?>
+                <tr>
+                    <td colspan="4" style="text-align: center; opacity: 0.5;">No items found in the inventory.</td>
+                </tr>
+                <?php endif; ?>
             </tbody>
         </table>
     </div>
