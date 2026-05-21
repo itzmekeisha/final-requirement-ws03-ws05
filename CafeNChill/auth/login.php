@@ -2,14 +2,29 @@
 session_start();
 include "../config/db.php"; 
 
+function clean_output($data) {
+    return htmlspecialchars($data, ENT_QUOTES, 'UTF-8');
+}
+
+if (!isset($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
 $error = "";
 
 if (isset($_SESSION['login_error'])) {
-    $error = $_SESSION['login_error'];
+    $error = clean_output($_SESSION['login_error']);
     unset($_SESSION['login_error']); 
 }
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    
+    if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+        $_SESSION['login_error'] = "Security Error: CSRF token verification failed.";
+        header("Location: login.php");
+        exit;
+    }
+
     $u = trim($_POST['username']); 
     $p = $_POST['password'];
     $selected_role = $_POST['role'];
@@ -34,7 +49,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     setcookie("user_login", $u, time() + (30 * 24 * 60 * 60), "/");
                 }
                 
-               
                 if ($row['role'] === 'superadmin') {
                     header("Location: ../superadmin/superadmin_dashboard.php");
                 } elseif ($row['role'] === 'admin') {
@@ -42,20 +56,18 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 } elseif ($row['role'] === 'user') {
                     header("Location: ../user/user_home.php");
                 } else {
-                  
                     header("Location: login.php");
                 }
                 exit;
-                // ---------------------------------
 
             } else {
-                $_SESSION['login_error'] = "Role Error: Ang account mo ay '" . $row['role'] . "' pero ang pinili mo ay '" . $selected_role . "'.";
+                $_SESSION['login_error'] = "Role Error: Your account role is '" . $row['role'] . "' but your selected role is '" . $selected_role . "'.";
             }
         } else {
-            $_SESSION['login_error'] = "Password Error: Hindi tugma ang password para kay " . $u . ".";
+            $_SESSION['login_error'] = "Password Error: Incorrect password for " . $u . ".";
         }
     } else {
-        $_SESSION['login_error'] = "User Error: Ang username na '" . $u . "' ay wala sa database.";
+        $_SESSION['login_error'] = "User Error: The username '" . $u . "' does not exist in the database.";
     }
 
     header("Location: login.php");
@@ -68,14 +80,18 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
-    <title>KATAMBAY | Management System</title>
+    <title>Cafe N Chill</title>
     
     <style>
-     
         * {
-            margin: 0; padding: 0; box-sizing: border-box;
-            text-decoration: none; border: none; outline: none;
-            scroll-behavior: smooth; font-family: 'Poppins', sans-serif;
+            margin: 0; 
+            padding: 0;
+             box-sizing: border-box;
+            text-decoration: none;
+             border: none; 
+             outline: none;
+            scroll-behavior: smooth;
+             font-family: 'Poppins', sans-serif;
         }
 
         :root {
@@ -94,54 +110,115 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             overflow-x: hidden;
         }
 
-        
         header {
-            position: fixed; top: 0; left: 0; width: 100%;
+            position: fixed; 
+            top: 0; 
+            left: 0; 
+            width: 100%;
             padding: 1.5rem 9%; 
             background: rgba(12, 10, 9, 0.85);
-            backdrop-filter: blur(10px); display: flex;
-            justify-content: space-between; align-items: center; z-index: 100;
+            backdrop-filter: blur(10px); 
+            display: flex;
+            justify-content: space-between; 
+            align-items: center; 
+            z-index: 100;
             border-bottom: 1px solid rgba(132, 92, 68, 0.1);
         }
 
-        .logo { display: flex; align-items: center; }
-        .logo img { height: 50px; width: auto; transition: 0.3s; margin-left: 160px; }
-        .logo img:hover { transform: scale(1.05); }
+        .logo {
+         display: flex; 
+         align-items: center; }
 
-       
-        section { min-height: 100vh; padding: 10rem 9% 2rem; display: flex; align-items: center; justify-content: center; }
+        .logo img { 
+        height: 50px;
+         width: auto; 
+         transition: 0.3s; 
+         margin-left: 160px; }
 
-        .home { display: flex; align-items: center; justify-content: center; gap: 8rem; }
+        .logo img:hover { 
+        transform: scale(1.05); }
+
+        section { 
+        min-height: 100vh; 
+        padding: 10rem 9% 2rem;
+         display: flex; 
+         align-items: center; 
+         justify-content: center; }
+
+        .home { 
+        display: flex;
+         align-items: center
+          justify-content: center; 
+          gap: 8rem; }
         
-        .home-content h1 { font-size: 4.5rem; font-weight: 700; line-height: 1.2; margin-left: -2px; }
-        .home-content h1 span { color: var(--main-color); }
-        .home-content h3 { font-size: 2.4rem; margin-bottom: 1.5rem; color: var(--accent-color); }
-        .home-content p { font-size: 1.4rem; margin-bottom: 3rem; color: #a8a29e; max-width: 500px; line-height: 1.6; }
+        .home-content h1 { 
+            font-size: 4.5rem;
+             font-weight: 700; 
+             line-height: 1.2;
+              margin-left: -2px; }
 
-       
+        .home-content h1 span { 
+            color: var(--main-color); }
+
+        .home-content h3 { 
+            font-size: 2.4rem;
+             margin-bottom: 1.5rem;
+              color: var(--accent-color); }
+
+        .home-content p { 
+            font-size: 1.4rem;
+             margin-bottom: 3rem; 
+             color: #a8a29e; 
+             max-width: 500px; 
+             line-height: 1.6; }
+
         .btn {
-            display: inline-block; padding: 1.2rem 3rem; background: var(--main-color);
-            border-radius: 4rem; font-size: 1.5rem; color: white; border: 2px solid var(--main-color);
-            font-weight: 600; transition: 0.3s ease; cursor: pointer;
+            display: inline-block; 
+            padding: 1.2rem 3rem; 
+            background: var(--main-color);
+            border-radius: 4rem; 
+            font-size: 1.5rem; 
+            color: white;
+             border: 2px solid var(--main-color);
+            font-weight: 600; 
+            transition: 0.3s ease; 
+            cursor: pointer;
         }
-        .btn:hover { background: transparent; color: var(--main-color); transform: scale(1.05); }
+        .btn:hover { 
+            background: transparent;
+             color: var(--main-color); 
+             transform: scale(1.05); }
 
-       
-        .home-img .img-box { width: 30vw; min-width: 300px; }
-        .home-img .img-box img { width: 100%; filter: drop-shadow(0 0 15px rgba(132, 92, 68, 0.4)); }
+        .home-img .img-box {
+             width: 30vw;
+              min-width: 300px; }
+        .home-img .img-box img {
+             width: 100%; 
+             filter: drop-shadow(0 0 15px rgba(132, 92, 68, 0.4)); }
 
-      
         .modal {
-            display: none; position: fixed; z-index: 2000;
-            left: 0; top: 0; width: 100%; height: 100%;
-            background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(8px);
-            align-items: center; justify-content: center;
+            display: none;
+             position: fixed;
+              z-index: 2000;
+            left: 0;
+             top: 0;
+              width: 100%; 
+              height: 100%;
+            background: rgba(0, 0, 0, 0.85); 
+            backdrop-filter: blur(8px);
+            align-items: center; 
+            justify-content: center;
         }
 
         .modal-content {
-            background: var(--second-bg-color); padding: 45px 35px; border-radius: 24px;
-            width: 400px; text-align: center; border: 1px solid var(--main-color);
-            box-shadow: 0 10px 40px rgba(0,0,0,0.6); position: relative;
+            background: var(--second-bg-color);
+             padding: 45px 35px;
+              border-radius: 24px;
+            width: 400px; 
+            text-align: center;
+             border: 1px solid var(--main-color);
+            box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+             position: relative;
             animation: modalFade 0.4s ease;
         }
 
@@ -156,7 +233,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             border: 1px solid #333; color: white; border-radius: 10px; font-size: 1.4rem;
         }
 
-      
         .remember-me-container {
             display: flex; justify-content: space-between; align-items: center;
             margin: 10px 5px 20px; font-size: 1.2rem;
@@ -166,7 +242,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         .remember-me-label input { accent-color: var(--main-color); width: 16px; height: 16px; }
         .forgot-link { color: var(--main-color); font-weight: 500; }
 
-    
         .role-grid { display: grid; grid-template-columns: 1fr; gap: 12px; margin-top: 25px; }
         .role-btn {
             padding: 15px; background: #292524; border-radius: 10px;
@@ -206,12 +281,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         </div>
     </section>
 
-  
     <div id="loginModal" class="modal" <?php if($error != "") echo 'style="display:flex;"'; ?>>
         <div class="modal-content">
             <i class="fa-solid fa-arrow-left back-btn" id="backBtn" style="display:none;" onclick="showRoles()"></i>
             <h2 id="modalTitle" style="font-size: 2.2rem; color: var(--main-color); margin-bottom: 5px;">☕ Select Role</h2>
-            <p id="modalSub" style="color: #a8a29e; font-size: 1.2rem;">Sino ang mag-lologin sa system?</p>
+            <p id="modalSub" style="color: #a8a29e; font-size: 1.2rem;">Who will login to the system?</p>
 
             <?php if($error != ""): ?>
                 <div class="error-msg"><?= $error ?></div>
@@ -230,8 +304,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             </div>
 
             <form id="loginForm" method="POST">
+                <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token']; ?>">
+
                 <div id="loginInputs">
-                    <input type="text" name="username" placeholder="Username" value="<?php if(isset($_COOKIE['user_login'])) echo $_COOKIE['user_login']; ?>" required autocomplete="off">
+                    <input type="text" name="username" placeholder="Username" value="<?php if(isset($_COOKIE['user_login'])) echo clean_output($_COOKIE['user_login']); ?>" required autocomplete="off">
                     <input type="password" name="password" placeholder="Password" required>
                     
                     <div class="remember-me-container">
