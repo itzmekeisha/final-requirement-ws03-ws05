@@ -2,45 +2,65 @@
 session_start();
 include "../config/db.php";
 
-// SECURITY CHECK - Admin access only
+function clean_output($data) {
+    return htmlspecialchars($data, ENT_QUOTES, 'UTF-8');
+}
+
 if(!isset($_SESSION['user']) || $_SESSION['user']['role'] != 'admin'){
     header("Location: ../auth/login.php");
     exit();
 }
 
+
+if (!isset($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
 $success = false;
 $error_msg = "";
 
-// Get active users list for the dropdown
+
 $users_query = "SELECT id, username, full_name FROM users WHERE status = 'active' ORDER BY full_name ASC";
 $users_result = $conn->query($users_query);
 
 if($_SERVER["REQUEST_METHOD"] == "POST"){
-    $user_to_reset = $_POST['user_id'];
-    $current_admin_password = $_POST['current_admin_password']; 
-    $new_password = $_POST['new_password'];
-    $admin_id = $_SESSION['user']['id'];
 
-    // 1. Verify the current Admin's password first
-    $check_admin = $conn->prepare("SELECT password FROM users WHERE id = ?");
-    $check_admin->bind_param("i", $admin_id);
-    $check_admin->execute();
-    $admin_res = $check_admin->get_result();
-    $admin_data = $admin_res->fetch_assoc();
-
-    if($admin_data && password_verify($current_admin_password, $admin_data['password'])){
-        // 2. If admin password is correct, update the target user's password
-        $hashed_new = password_hash($new_password, PASSWORD_BCRYPT);
-        $update_stmt = $conn->prepare("UPDATE users SET password = ? WHERE id = ?");
-        $update_stmt->bind_param("si", $hashed_new, $user_to_reset);
-
-        if($update_stmt->execute()){
-            $success = true;
-        } else {
-            $error_msg = "Database error. Please try again.";
-        }
+    if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+        $error_msg = "Security Error: CSRF token verification failed.";
     } else {
-        $error_msg = "Incorrect current password. Authorization failed.";
+        $user_to_reset = isset($_POST['user_id']) ? intval($_POST['user_id']) : 0;
+        $current_admin_password = $_POST['current_admin_password']; 
+        $new_password = $_POST['new_password'];
+        $admin_id = intval($_SESSION['user']['id']);
+
+        if ($user_to_reset <= 0) {
+            $error_msg = "Invalid user selection.";
+        } elseif (strlen($new_password) < 6) {
+            $error_msg = "New password must be at least 6 characters long.";
+        } else {
+            $check_admin = $conn->prepare("SELECT password FROM users WHERE id = ?");
+            $check_admin->bind_param("i", $admin_id);
+            $check_admin->execute();
+            $admin_res = $check_admin->get_result();
+            $admin_data = $admin_res->fetch_assoc();
+            $check_admin->close();
+
+            if($admin_data && password_verify($current_admin_password, $admin_data['password'])){
+                $hashed_new = password_hash($new_password, PASSWORD_BCRYPT);
+                
+                $update_stmt = $conn->prepare("UPDATE users SET password = ? WHERE id = ?");
+                $update_stmt->bind_param("si", $hashed_new, $user_to_reset);
+
+                if($update_stmt->execute()){
+                    $success = true;
+                } else {
+                    $error_msg = "Database error. Please try again.";
+                }
+                $update_stmt->close();
+            } else {
+                $error_msg = "Incorrect current password. Authorization failed.";
+            }
+        }
     }
 }
 
@@ -231,13 +251,12 @@ $page = basename($_SERVER['PHP_SELF']);
     <a href="view_items.php"><i class="fa-solid fa-box-open"></i> View Items</a>
     <a href="update_item.php"><i class="fa-solid fa-pen-to-square"></i> Update Item</a>
     <a href="archived_items.php"><i class="fa-solid fa-box-archive"></i> Archived Items</a>
-    <a href="view_user.php" ><i class="fa-solid fa-users"></i> View Users</a>
+    <a href="view_user.php"><i class="fa-solid fa-users"></i> View Users</a>
     <a href="add_user.php"><i class="fa-solid fa-user-plus"></i> Add User</a>
     <a href="archived_users.php"><i class="fa-solid fa-user-slash"></i> Archived Users</a>
     <a href="reset_password.php" class="active"><i class="fa-solid fa-key"></i> Reset Password</a>
     <a href="approve_item.php"><i class="fa-solid fa-check-double"></i> Approve Items</a>
     
-    <!-- Updated Logout Section -->
     <a onclick="confirmLogout()" style="margin-top: 20px; color: #f87171; cursor: pointer;">
         <i class="fa-solid fa-right-from-bracket"></i> Logout
     </a>
@@ -252,13 +271,15 @@ $page = basename($_SERVER['PHP_SELF']);
         </div>
 
         <form method="POST" autocomplete="off">
+            <input type="hidden" name="csrf_token" value="<?= clean_output($_SESSION['csrf_token']); ?>">
+
             <div class="input-group">
                 <label>Select User Account</label>
                 <select name="user_id" required>
                     <option value="" disabled selected>Select an account...</option>
                     <?php while($row = $users_result->fetch_assoc()): ?>
-                        <option value="<?= $row['id'] ?>">
-                            <?= htmlspecialchars($row['full_name']) ?> (<?= htmlspecialchars($row['username']) ?>)
+                        <option value="<?= intval($row['id']) ?>">
+                            <?= clean_output($row['full_name']) ?> (<?= clean_output($row['username']) ?>)
                         </option>
                     <?php endwhile; ?>
                 </select>
@@ -282,7 +303,6 @@ $page = basename($_SERVER['PHP_SELF']);
 </div>
 
 <script>
-    // Logout function katulad ng sa dashboard
     function confirmLogout() {
         Swal.fire({
             title: 'Logout?',
@@ -302,7 +322,7 @@ $page = basename($_SERVER['PHP_SELF']);
         });
     }
 
-    <?php if($success){ ?>
+    <?php if($success): ?>
     Swal.fire({
         title: 'Success!',
         text: 'The password has been successfully updated.',
@@ -311,18 +331,18 @@ $page = basename($_SERVER['PHP_SELF']);
         background: '#1c1917',
         color: '#fafaf9'
     }).then(() => { window.location.href = 'admin_dashboard.php'; });
-    <?php } ?>
+    <?php endif; ?>
 
-    <?php if($error_msg){ ?>
+    <?php if(!empty($error_msg)): ?>
     Swal.fire({
         title: 'Error!',
-        text: '<?php echo $error_msg; ?>',
+        text: '<?= clean_output($error_msg); ?>',
         icon: 'error',
         confirmButtonColor: '#845c44',
         background: '#1c1917',
         color: '#fafaf9'
     });
-    <?php } ?>
+    <?php endif; ?>
 </script>
 
 </body>
