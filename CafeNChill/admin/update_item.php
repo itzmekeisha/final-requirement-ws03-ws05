@@ -7,11 +7,16 @@ if(!isset($_SESSION['user'])){
     exit();
 }
 
+if (!isset($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
 $success = false;
+$error_msg = "";
 $item = null;
 
-if(isset($_GET['id'])){
-    $id = $_GET['id'];
+if(isset($_GET['id']) && is_numeric($_GET['id'])){
+    $id = intval($_GET['id']);
     $stmt = $conn->prepare("SELECT * FROM items WHERE id = ?");
     $stmt->bind_param("i", $id);
     $stmt->execute();
@@ -19,19 +24,41 @@ if(isset($_GET['id'])){
     if($res->num_rows > 0){
         $item = $res->fetch_assoc();
     }
+    $stmt->close();
 }
 
 if(isset($_POST['update'])){
-    $id = $_POST['id'];
+
+    if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+        die("Security Error: CSRF token verification failed.");
+    }
+
+    $id = intval($_POST['id']);
     $name = trim($_POST['name']);
     $category = trim($_POST['category']);
-    $quantity = $_POST['quantity'];
+    $current_quantity = intval($_POST['current_quantity']); 
+    $added_stock = intval($_POST['added_stock']); 
+    $uom = $_POST['uom']; 
+    $cost_price = floatval($_POST['cost_price']); 
+    $selling_price = floatval($_POST['selling_price']); 
+    $description = trim($_POST['description']); 
 
-    if(!empty($id)){
-        $stmt_upd = $conn->prepare("UPDATE items SET name = ?, category = ?, quantity = ?, updated_at = NOW() WHERE id = ?");
-        $stmt_upd->bind_param("ssii", $name, $category, $quantity, $id);
-        if($stmt_upd->execute()){
-            $success = true;
+    if ($added_stock < 0 || $cost_price < 0 || $selling_price < 0) {
+        $error_msg = "Stock, Cost Price, and Selling Price cannot be negative values.";
+    } elseif (empty($name) || empty($category)) {
+        $error_msg = "Item name and category are required fields.";
+    } else {
+        $new_quantity = $current_quantity + $added_stock;
+
+        if(!empty($id) && $id > 0){
+            $stmt_upd = $conn->prepare("UPDATE items SET name = ?, category = ?, quantity = ?, uom = ?, cost_price = ?, selling_price = ?, description = ?, updated_at = NOW() WHERE id = ?");
+            $stmt_upd->bind_param("ssisddsi", $name, $category, $new_quantity, $uom, $cost_price, $selling_price, $description, $id);
+            if($stmt_upd->execute()){
+                $success = true;
+            } else {
+                $error_msg = "Database Error: Failed to update the item.";
+            }
+            $stmt_upd->close();
         }
     }
 }
@@ -77,7 +104,7 @@ $page = basename($_SERVER['PHP_SELF']);
 
         .main-content {
             margin-left: 260px; padding: 40px; width: 100%;
-            display: grid; grid-template-columns: 1fr 1.2fr; gap: 30px; align-items: start;
+            display: grid; grid-template-columns: 1.2fr 1fr; gap: 30px; align-items: start;
             box-sizing: border-box;
         }
 
@@ -92,13 +119,17 @@ $page = basename($_SERVER['PHP_SELF']);
         }
 
         .form-group { margin-bottom: 20px; }
+        .form-row { display: flex; gap: 15px; }
+        .form-row .form-group { flex: 1; }
+
         label { display: block; font-size: 0.7rem; color: #737373; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; }
-        input {
+        input, select, textarea {
             width: 100%; padding: 12px 15px; background: var(--input-bg); border: 1px solid transparent;
-            border-radius: 8px; color: white; transition: 0.3s; outline: none; box-sizing: border-box;
+            border-radius: 8px; color: white; transition: 0.3s; outline: none; box-sizing: border-box; font-family: 'Poppins', sans-serif;
         }
-        input:focus { border-color: var(--coffee-brown); background: #2d2d2d; }
-        
+        input:focus, select:focus, textarea:focus { border-color: var(--coffee-brown); background: #2d2d2d; }
+        input:disabled { background: #1a1a1a; color: #737373; cursor: not-allowed; border: 1px dashed rgba(255,255,255,0.05); }
+
         .btn-update {
             width: 100%; padding: 14px; background: var(--coffee-brown); color: white;
             border: none; border-radius: 8px; cursor: pointer; font-weight: 600;
@@ -125,40 +156,17 @@ $page = basename($_SERVER['PHP_SELF']);
 
 <div class="sidebar">
     <h2>CAFE N CHILL</h2>
-    <a href="admin_dashboard.php" class="<?= $page == 'admin_dashboard.php' ? 'active' : '' ?>">
-        <i class="fa-solid fa-gauge"></i> Dashboard
-    </a>
-    <a href="add_item.php" class="<?= $page == 'add_item.php' ? 'active' : '' ?>">
-        <i class="fa-solid fa-plus"></i> Add Item
-    </a>
-    <a href="view_items.php" class="<?= $page == 'view_items.php' ? 'active' : '' ?>">
-        <i class="fa-solid fa-box-open"></i> View Items
-    </a>
-    <a href="update_item.php" class="<?= $page == 'update_item.php' ? 'active' : '' ?>">
-        <i class="fa-solid fa-pen-to-square"></i> Update Item
-    </a>
-    <a href="archived_items.php" class="<?= $page == 'archived_items.php' ? 'active' : '' ?>">
-        <i class="fa-solid fa-box-archive"></i> Archived Items
-    </a>
-    <a href="view_user.php" class="<?= $page == 'view_user.php' ? 'active' : '' ?>">
-        <i class="fa-solid fa-users"></i> View Users
-    </a>
-    <a href="add_user.php" class="<?= $page == 'add_user.php' ? 'active' : '' ?>">
-        <i class="fa-solid fa-user-plus"></i> Add User
-    </a>
-    <a href="archived_users.php" class="<?= $page == 'archived_users.php' ? 'active' : '' ?>">
-        <i class="fa-solid fa-user-slash"></i> Archived Users
-    </a>
-    <a href="reset_password.php" class="<?= $page == 'reset_password.php' ? 'active' : '' ?>">
-        <i class="fa-solid fa-key"></i> Reset Password
-    </a>
-    <a href="approve_item.php" class="<?= $page == 'approve_item.php' ? 'active' : '' ?>">
-        <i class="fa-solid fa-check-double"></i> Approve Items
-    </a>
-
-    <a onclick="confirmLogout()" style="margin-top: 20px; color: #f87171; cursor: pointer;">
-        <i class="fa-solid fa-right-from-bracket"></i> Logout
-    </a>
+    <a href="admin_dashboard.php" class="<?= $page == 'admin_dashboard.php' ? 'active' : '' ?>"><i class="fa-solid fa-gauge"></i> Dashboard</a>
+    <a href="add_item.php" class="<?= $page == 'add_item.php' ? 'active' : '' ?>"><i class="fa-solid fa-plus"></i> Add Item</a>
+    <a href="view_items.php" class="<?= $page == 'view_items.php' ? 'active' : '' ?>"><i class="fa-solid fa-box-open"></i> View Items</a>
+    <a href="update_item.php" class="<?= $page == 'update_item.php' ? 'active' : '' ?>"><i class="fa-solid fa-pen-to-square"></i> Update Item</a>
+    <a href="archived_items.php" class="<?= $page == 'archived_items.php' ? 'active' : '' ?>"><i class="fa-solid fa-box-archive"></i> Archived Items</a>
+    <a href="view_user.php" class="<?= $page == 'view_user.php' ? 'active' : '' ?>"><i class="fa-solid fa-users"></i> View Users</a>
+    <a href="add_user.php" class="<?= $page == 'add_user.php' ? 'active' : '' ?>"><i class="fa-solid fa-user-plus"></i> Add User</a>
+    <a href="archived_users.php" class="<?= $page == 'archived_users.php' ? 'active' : '' ?>"><i class="fa-solid fa-user-slash"></i> Archived Users</a>
+    <a href="reset_password.php" class="<?= $page == 'reset_password.php' ? 'active' : '' ?>"><i class="fa-solid fa-key"></i> Reset Password</a>
+    <a href="approve_item.php" class="<?= $page == 'approve_item.php' ? 'active' : '' ?>"><i class="fa-solid fa-check-double"></i> Approve Items</a>
+    <a onclick="confirmLogout()" style="margin-top: 20px; color: #f87171; cursor: pointer;"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
 </div>
 
 <main class="main-content">
@@ -169,21 +177,56 @@ $page = basename($_SERVER['PHP_SELF']);
 
         <?php if($item): ?>
         <form method="POST">
-            <input type="hidden" name="id" value="<?= $item['id']; ?>">
+            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES, 'UTF-8'); ?>">
+            <input type="hidden" name="id" value="<?= intval($item['id']); ?>">
+            <input type="hidden" name="current_quantity" value="<?= intval($item['quantity']); ?>">
             
-            <div class="form-group">
-                <label>Item Name</label>
-                <input type="text" name="name" value="<?= htmlspecialchars($item['name']); ?>" required placeholder="e.g. Arabica Beans">
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Item Name</label>
+                    <input type="text" name="name" value="<?= htmlspecialchars($item['name'], ENT_QUOTES, 'UTF-8'); ?>" required placeholder="e.g. Wintermelon">
+                </div>
+                <div class="form-group">
+                    <label>Category</label>
+                    <input type="text" name="category" value="<?= htmlspecialchars($item['category'], ENT_QUOTES, 'UTF-8'); ?>" required placeholder="e.g. Milktea">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Current Stock (Read-Only)</label>
+                    <input type="number" value="<?= intval($item['quantity']); ?>" disabled>
+                </div>
+                <div class="form-group">
+                    <label>Add Additional Stock</label>
+                    <input type="number" name="added_stock" value="0" min="0" required placeholder="Enter amount to add">
+                </div>
             </div>
 
             <div class="form-group">
-                <label>Category</label>
-                <input type="text" name="category" value="<?= htmlspecialchars($item['category']); ?>" required placeholder="e.g. Coffee">
+                <label>Unit / Size Measurement (UOM)</label>
+                <select name="uom" required>
+                    <option value="pcs" <?= (isset($item['uom']) && $item['uom'] == 'pcs') ? 'selected' : ''; ?>>Pieces (per piece)</option>
+                    <option value="12oz" <?= (isset($item['uom']) && $item['uom'] == '12oz') ? 'selected' : ''; ?>>12 oz (Small Size)</option>
+                    <option value="16oz" <?= (isset($item['uom']) && $item['uom'] == '16oz') ? 'selected' : ''; ?>>16 oz (Medium Size)</option>
+                    <option value="22oz" <?= (isset($item['uom']) && $item['uom'] == '22oz') ? 'selected' : ''; ?>>22 oz (Large Size)</option>
+                </select>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Cost Price / Capital (₱)</label>
+                    <input type="number" step="0.01" min="0" name="cost_price" value="<?= isset($item['cost_price']) ? floatval($item['cost_price']) : '0.00'; ?>" required placeholder="0.00">
+                </div>
+                <div class="form-group">
+                    <label>Selling Price / Retail (₱)</label>
+                    <input type="number" step="0.01" min="0" name="selling_price" value="<?= isset($item['selling_price']) ? floatval($item['selling_price']) : '0.00'; ?>" required placeholder="0.00">
+                </div>
             </div>
 
             <div class="form-group">
-                <label>Current Stock</label>
-                <input type="number" name="quantity" value="<?= $item['quantity']; ?>" required>
+                <label>Description</label>
+                <textarea name="description" rows="3" placeholder="Enter item description here..."><?= isset($item['description']) ? htmlspecialchars($item['description'], ENT_QUOTES, 'UTF-8') : ''; ?></textarea>
             </div>
 
             <button type="submit" name="update" class="btn-update">
@@ -212,16 +255,20 @@ $page = basename($_SERVER['PHP_SELF']);
                 </tr>
             </thead>
             <tbody>
-                <?php while($log = $logs_result->fetch_assoc()): ?>
-                <tr>
-                    <td>
-                        <span style="display:block; font-weight: 500;"><?= htmlspecialchars($log['name']); ?></span>
-                        <span style="font-size: 0.7rem; color: #737373;"><?= htmlspecialchars($log['category']); ?></span>
-                    </td>
-                    <td class="time-col"><?= date('M d, h:i A', strtotime($log['updated_at'])); ?></td>
-                    <td><span class="status-badge">Updated</span></td>
-                </tr>
-                <?php endwhile; ?>
+                <?php if ($logs_result && $logs_result->num_rows > 0): ?>
+                    <?php while($log = $logs_result->fetch_assoc()): ?>
+                    <tr>
+                        <td>
+                            <span style="display:block; font-weight: 500;"><?= htmlspecialchars($log['name'], ENT_QUOTES, 'UTF-8'); ?></span>
+                            <span style="font-size: 0.7rem; color: #737373;"><?= htmlspecialchars($log['category'], ENT_QUOTES, 'UTF-8'); ?></span>
+                        </td>
+                        <td class="time-col"><?= date('M d, h:i A', strtotime($log['updated_at'])); ?></td>
+                        <td><span class="status-badge">Updated</span></td>
+                    </tr>
+                    <?php endwhile; ?>
+                <?php else: ?>
+                    <tr><td colspan="3" style="text-align:center; color:#737373; padding: 20px;">No recent activities found.</td></tr>
+                <?php endif; ?>
             </tbody>
         </table>
     </section>
@@ -241,22 +288,29 @@ $page = basename($_SERVER['PHP_SELF']);
             background: '#1c1917',
             color: '#fafaf9'
         }).then((result) => {
-            if (result.isConfirmed) { 
-                window.location.href = '../auth/logout.php'; 
-            }
+            if (result.isConfirmed) { window.location.href = '../auth/logout.php'; }
         });
     }
 
     <?php if($success): ?>
     Swal.fire({
         title: 'Updated!',
-        text: 'Successfully saved the changes.',
+        text: 'Successfully saved the changes and calculated stock.',
         icon: 'success',
         confirmButtonColor: '#845c44',
         background: '#1c1917',
         color: '#fafaf9'
-    }).then(() => { 
-        window.location.href = 'view_items.php'; 
+    }).then(() => { window.location.href = 'view_items.php'; });
+    <?php endif; ?>
+
+    <?php if(!empty($error_msg)): ?>
+    Swal.fire({
+        title: 'Validation Error',
+        text: '<?= htmlspecialchars($error_msg, ENT_QUOTES, 'UTF-8'); ?>',
+        icon: 'error',
+        confirmButtonColor: '#845c44',
+        background: '#1c1917',
+        color: '#fafaf9'
     });
     <?php endif; ?>
 </script>
