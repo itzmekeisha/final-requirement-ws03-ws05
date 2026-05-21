@@ -6,37 +6,53 @@ if(!isset($_SESSION['user']) || $_SESSION['user']['role'] != 'superadmin'){
     header("Location: ../auth/login.php");
     exit();
 }
+if (!isset($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
+$error = "";
+$success = false;
 
 if($_SERVER["REQUEST_METHOD"] == "POST"){
 
+    if(!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']){
+        die("Security Error: CSRF verification failed.");
+    }
+
     $name = trim($_POST['name']);
     $user = trim($_POST['username']);
-    $pass = password_hash($_POST['password'], PASSWORD_BCRYPT);
+    $password_input = $_POST['password'];
 
-    $check = $conn->prepare("SELECT id FROM users WHERE username=?");
-    $check->bind_param("s", $user);
-    $check->execute();
-    $result = $check->get_result();
-
-    if($result->num_rows > 0){
-        $error = "Username na '$user' ay gamit na!";
+    if (empty($name) || empty($user) || empty($password_input)) {
+        $error = "All fields are strictly required.";
     } else {
+        $check = $conn->prepare("SELECT id FROM users WHERE username=?");
+        $check->bind_param("s", $user);
+        $check->execute();
+        $result = $check->get_result();
 
-        $role = "admin";
-        $status = "active";
-
-        $stmt = $conn->prepare("
-            INSERT INTO users(full_name, username, password, role, status)
-            VALUES(?,?,?,?,?)
-        ");
-
-        $stmt->bind_param("sssss", $name, $user, $pass, $role, $status);
-        
-        if($stmt->execute()){
-            $success = true; 
+        if($result->num_rows > 0){
+            $error = "Username '" . htmlspecialchars($user, ENT_QUOTES, 'UTF-8') . "' is already in use!";
         } else {
-            $error = "Nagkaroon ng error sa pag-save.";
+            $pass = password_hash($password_input, PASSWORD_BCRYPT);
+            $role = "admin";
+            $status = "active";
+
+            $stmt = $conn->prepare("
+                INSERT INTO users(full_name, username, password, role, status)
+                VALUES(?,?,?,?,?)
+            ");
+
+            $stmt->bind_param("sssss", $name, $user, $pass, $role, $status);
+            
+            if($stmt->execute()){
+                $success = true; 
+            } else {
+                $error = "An error occurred while saving the account to the database.";
+            }
+            $stmt->close();
         }
+        $check->close();
     }
 }
 ?>
@@ -45,6 +61,7 @@ if($_SERVER["REQUEST_METHOD"] == "POST"){
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Cafe N Chill | Add Admin</title>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
@@ -131,6 +148,29 @@ if($_SERVER["REQUEST_METHOD"] == "POST"){
             background: #1c1917;
         }
 
+        .password-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+
+        .password-wrapper input {
+            padding-right: 45px;
+        }
+
+        .toggle-icon {
+            position: absolute;
+            right: 15px;
+            color: #a8a29e;
+            cursor: pointer;
+            user-select: none;
+            transition: 0.2s;
+        }
+
+        .toggle-icon:hover {
+            color: #d4a373;
+        }
+
         button {
             width: 100%;
             padding: 15px;
@@ -169,41 +209,56 @@ if($_SERVER["REQUEST_METHOD"] == "POST"){
 
     <h2><i class="fa-solid fa-user-plus"></i> New Admin</h2>
 
-    <?php if(isset($error)){ ?>
+    <?php if(!empty($error)){ ?>
         <div class="error"><?= $error ?></div>
     <?php } ?>
 
+    <form method="POST" autocomplete="off" action="">
+        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES, 'UTF-8'); ?>">
 
-    <form method="POST" autocomplete="off">
-        
-        <
         <input type="text" name="fake_user" style="display:none" aria-hidden="true">
         <input type="password" name="fake_pass" style="display:none" aria-hidden="true">
 
         <div class="input-group">
             <label>Full Name</label>
-         
             <input type="text" name="name" placeholder="Enter Name" required autocomplete="off">
         </div>
 
         <div class="input-group">
             <label>Username</label>
-          
             <input type="text" name="username" placeholder="Enter Username" required autocomplete="new-password">
         </div>
 
         <div class="input-group">
             <label>Password</label>
-       
-            <input name="password" type="password" placeholder="Enter Password" required autocomplete="new-password">
+            <div class="password-wrapper">
+                <input id="admin_password" name="password" type="password" placeholder="Enter Password" required autocomplete="new-password">
+                <i class="fa-solid fa-eye toggle-icon" onclick="togglePassword()"></i>
+            </div>
         </div>
 
         <button type="submit">Create Admin Account</button>
     </form>
 </div>
 
+<script>
+function togglePassword() {
+    const passField = document.getElementById("admin_password");
+    const icon = document.querySelector(".toggle-icon");
+    
+    if (passField.type === "password") {
+        passField.type = "text";
+        icon.classList.remove("fa-eye");
+        icon.classList.add("fa-eye-slash");
+    } else {
+        passField.type = "password";
+        icon.classList.remove("fa-eye-slash");
+        icon.classList.add("fa-eye");
+    }
+}
+</script>
 
-<?php if(isset($success) && $success){ ?>
+<?php if($success){ ?>
 <script>
     Swal.fire({
         title: 'Success!',
