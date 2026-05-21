@@ -1,28 +1,36 @@
 <?php
 include "../config/db.php";
 session_start();
-
-
 if(!isset($_SESSION['user']) || $_SESSION['user']['role'] != 'superadmin'){
-    die("ACCESS DENIED");
+    header("Location: ../auth/login.php");
+    exit();
 }
 
-if(isset($_GET['id'])){
-    $id = $_GET['id'];
-    $status = "archived";
+if ($_SERVER["REQUEST_METHOD"] == "POST") {
+    
+    if(!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']){
+        die("Security Error: CSRF verification failure.");
+    }
 
    
-    $stmt = $conn->prepare("UPDATE users SET status = ? WHERE id = ? AND role = 'admin'");
-    $stmt->bind_param("si", $status, $id);
+    $id = isset($_POST['id']) ? intval($_POST['id']) : 0;
+    $status = "archived";
 
-    if($stmt->execute()){
-     
-        header("Location: superadmin_dashboard.php?archived=success");
+    if($id > 0) {
+        $stmt = $conn->prepare("UPDATE users SET status = ? WHERE id = ? AND role = 'admin'");
+        $stmt->bind_param("si", $status, $id);
+
+        if($stmt->execute()){
+            $_SESSION['success'] = "Admin account has been successfully archived.";
+        } else {
+            $_SESSION['error'] = "Database Error: Unable to archive admin.";
+        }
+        $stmt->close();
     } else {
-        echo "Error archiving admin.";
+        $_SESSION['error'] = "Invalid Admin ID.";
     }
-} else {
-    header("Location: superadmin_dashboard.php");
 }
+
+header("Location: superadmin_dashboard.php");
 exit();
 ?>
