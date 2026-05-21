@@ -7,38 +7,43 @@ if(!isset($_SESSION['user']) || $_SESSION['user']['role'] != 'admin'){
     exit();
 }
 
-
-if(isset($_GET['restore_id']) && is_numeric($_GET['restore_id'])){
-    $id = intval($_GET['restore_id']);
-    
-    $stmt = $conn->prepare("UPDATE users SET status='active' WHERE id=?");
-    $stmt->bind_param("i", $id);
-    
-    if($stmt->execute()){
-        $_SESSION['success'] = "User restored successfully!";
-    }
-    $stmt->close();
-    header("Location: archived_users.php");
-    exit();
+if (!isset($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 }
-
-
-if(isset($_GET['delete_id']) && is_numeric($_GET['delete_id'])){
-    $id = intval($_GET['delete_id']);
-    
-    $stmt = $conn->prepare("DELETE FROM users WHERE id=?");
-    $stmt->bind_param("i", $id);
-    
-    if($stmt->execute()){
-        $_SESSION['success'] = "User deleted permanently!";
-    }
-    $stmt->close();
-    header("Location: archived_users.php");
-    exit();
-}
-
 
 $page = basename($_SERVER['PHP_SELF']);
+
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['action_type'])) {
+    
+ 
+    if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+        die("Security Error: CSRF token verification failed.");
+    }
+
+    $id = intval($_POST['user_id']);
+    $action = $_POST['action_type'];
+
+    if ($action === 'restore') {
+        $stmt = $conn->prepare("UPDATE users SET status='active' WHERE id=?");
+        $stmt->bind_param("i", $id);
+        if ($stmt->execute()) {
+            $_SESSION['success'] = "User restored successfully!";
+        }
+        $stmt->close();
+    } 
+    
+    if ($action === 'delete') {
+        $stmt = $conn->prepare("DELETE FROM users WHERE id=?");
+        $stmt->bind_param("i", $id);
+        if ($stmt->execute()) {
+            $_SESSION['success'] = "User deleted permanently!";
+        }
+        $stmt->close();
+    }
+
+    header("Location: archived_users.php");
+    exit();
+}
 ?>
 
 <!DOCTYPE html>
@@ -114,11 +119,11 @@ $page = basename($_SERVER['PHP_SELF']);
             border-left: 4px solid var(--cream-accent);
         }
 
-    
         .main {
             margin-left: 260px;
             padding: 40px;
             width: calc(100% - 260px);
+            box-sizing: border-box;
         }
 
         .header-section {
@@ -182,10 +187,16 @@ $page = basename($_SERVER['PHP_SELF']);
         .btn-delete { background: #444; margin-left: 5px; }
         .btn-delete:hover { background: var(--danger-red); transform: translateY(-2px); }
 
-        .no-data { text-align: center; padding: 50px; color: #a8a29e; }
+        .no-data { text-align: center; padding: 50px; color: #a8a29e; font-style: italic; }
     </style>
 </head>
 <body>
+
+<form id="securityForm" method="POST" style="display:none;">
+    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES, 'UTF-8') ?>">
+    <input type="hidden" name="user_id" id="formUserInput">
+    <input type="hidden" name="action_type" id="formActionInput">
+</form>
 
 <div class="sidebar">
     <h2>CAFE N CHILL</h2>
@@ -196,13 +207,13 @@ $page = basename($_SERVER['PHP_SELF']);
     <a href="view_items.php"><i class="fa-solid fa-box-open"></i> View Items</a>
     <a href="update_item.php"><i class="fa-solid fa-pen-to-square"></i> Update Item</a>
     <a href="archived_items.php"><i class="fa-solid fa-box-archive"></i> Archived Items</a>
-    <a href="view_user.php" ><i class="fa-solid fa-users"></i> View Users</a>
+    <a href="view_user.php"><i class="fa-solid fa-users"></i> View Users</a>
     <a href="add_user.php"><i class="fa-solid fa-user-plus"></i> Add User</a>
     <a href="archived_users.php" class="active"><i class="fa-solid fa-user-slash"></i> Archived Users</a>
     <a href="reset_password.php"><i class="fa-solid fa-key"></i> Reset Password</a>
     <a href="approve_item.php"><i class="fa-solid fa-check-double"></i> Approve Items</a>
 
-    <a onclick="confirmLogout()" style="margin-top: 20px; color: #f87171;">
+    <a onclick="confirmLogout()" style="margin-top: 20px; color: #f87171; cursor: pointer;">
         <i class="fa-solid fa-right-from-bracket"></i> Logout
     </a>
 </div>
@@ -230,14 +241,14 @@ $page = basename($_SERVER['PHP_SELF']);
                     while($r = $res->fetch_assoc()){
                 ?>
                 <tr>
-                    <td><strong><?php echo htmlspecialchars($r['full_name']); ?></strong></td>
-                    <td>@<?php echo htmlspecialchars($r['username']); ?></td>
-                    <td><span class="role-badge"><?php echo strtoupper($r['role']); ?></span></td>
+                    <td><strong><?= htmlspecialchars($r['full_name'], ENT_QUOTES, 'UTF-8') ?></strong></td>
+                    <td>@<?= htmlspecialchars($r['username'], ENT_QUOTES, 'UTF-8') ?></td>
+                    <td><span class="role-badge"><?= htmlspecialchars(strtoupper($r['role']), ENT_QUOTES, 'UTF-8') ?></span></td>
                     <td>
-                        <button onclick="confirmRestore(<?php echo $r['id']; ?>)" class="btn-action btn-restore">
+                        <button onclick="handleUserAction(<?= intval($r['id']) ?>, 'restore')" class="btn-action btn-restore">
                             <i class="fa-solid fa-rotate-left"></i> Restore
                         </button>
-                        <button onclick="confirmDelete(<?php echo $r['id']; ?>)" class="btn-action btn-delete">
+                        <button onclick="handleUserAction(<?= intval($r['id']) ?>, 'delete')" class="btn-action btn-delete">
                             <i class="fa-solid fa-trash"></i> Delete
                         </button>
                     </td>
@@ -254,50 +265,35 @@ $page = basename($_SERVER['PHP_SELF']);
 </div>
 
 <script>
-   
-    function confirmRestore(id) {
+    function handleUserAction(id, type) {
+        const isDelete = type === 'delete';
+        
         Swal.fire({
-            title: 'Restore User?',
-            text: "This user will be restored to the “View Users” list.",
-            icon: 'question',
+            title: isDelete ? 'Delete Permanently?' : 'Restore User?',
+            text: isDelete 
+                ? "Warning: This account will be permanently deleted from the database!" 
+                : "This user will be restored to the active users list.",
+            icon: isDelete ? 'warning' : 'question',
             showCancelButton: true,
-            confirmButtonColor: '#10b981',
+            confirmButtonColor: isDelete ? '#ef4444' : '#10b981',
             cancelButtonColor: '#444',
-            confirmButtonText: 'Yes, Restore!',
+            confirmButtonText: isDelete ? 'Yes, Delete!' : 'Yes, Restore!',
             background: '#1c1917',
             color: '#fafaf9'
         }).then((result) => {
             if (result.isConfirmed) {
-                window.location.href = "archived_users.php?restore_id=" + id;
+                document.getElementById('formUserInput').value = id;
+                document.getElementById('formActionInput').value = type;
+                document.getElementById('securityForm').submit();
             }
-        })
+        });
     }
 
-  
-    function confirmDelete(id) {
-        Swal.fire({
-            title: 'Delete Permanently?',
-            text: "Warning: This account will be permanently deleted from the database!",
-            icon: 'warning',
-            showCancelButton: true,
-            confirmButtonColor: '#ef4444',
-            cancelButtonColor: '#444',
-            confirmButtonText: 'Yes, Delete!',
-            background: '#1c1917',
-            color: '#fafaf9'
-        }).then((result) => {
-            if (result.isConfirmed) {
-                window.location.href = "archived_users.php?delete_id=" + id;
-            }
-        })
-    }
-
-   
     <?php if(isset($_SESSION['success'])): ?>
         Swal.fire({
             icon: 'success',
             title: 'Success!',
-            text: '<?php echo $_SESSION['success']; ?>',
+            text: '<?= htmlspecialchars($_SESSION['success'], ENT_QUOTES, 'UTF-8') ?>',
             background: '#1c1917',
             color: '#fafaf9',
             confirmButtonColor: '#845c44'
